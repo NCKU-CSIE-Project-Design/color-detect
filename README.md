@@ -1,1 +1,1 @@
-<span style= "fron-size: 24px;">**gigigigi**</span>
+<span style= "fron-size: 80px;">**gigigigi**</span>
