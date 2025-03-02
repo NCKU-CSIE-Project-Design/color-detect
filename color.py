@@ -2,53 +2,36 @@ import cv2
 import dlib
 import numpy as np
 from sklearn.cluster import KMeans
-import cv2
-import dlib
 
-
-def visualize_eye_region(img, landmarks, save_path='eye_region.jpg'):
-    # 複製原圖，避免修改原始圖片
-    img_copy = img.copy()
+def get_dominant_color(img, mask=None):
+    """使用K-means聚类方法获取主要颜色"""
+    # 如果提供了遮罩，应用遮罩
+    if mask is not None:
+        img = cv2.bitwise_and(img, img, mask=mask)
     
-    # 提取眼睛區域的點
-    left_eye = []
-    for i in range(36, 42):
-        left_eye.append((landmarks.part(i).x, landmarks.part(i).y))
+    # 将图像重塑为二维数组
+    pixels = img.reshape(-1, 3)
     
-    # 計算眼睛區域的中心點
-    x_coords = [x for x, y in left_eye]
-    y_coords = [y for x, y in left_eye]
-    eye_center_x = sum(x_coords) // len(x_coords)
-    eye_center_y = sum(y_coords) // len(y_coords)
+    # 移除黑色像素（如果有遮罩）
+    if mask is not None:
+        pixels = pixels[pixels.sum(axis=1) > 0]
     
-    # 計算瞳孔檢測區域
-    radius = (max(x_coords) - min(x_coords)) // 4
-    x1 = max(0, eye_center_x - radius)
-    x2 = min(img.shape[1], eye_center_x + radius)
-    y1 = max(0, eye_center_y - radius)
-    y2 = min(img.shape[0], eye_center_y + radius)
+    if len(pixels) == 0:
+        return np.array([0, 0, 0])
     
-    # 畫出眼睛輪廓點
-    for x, y in left_eye:
-        cv2.circle(img_copy, (x, y), 2, (0, 255, 0), -1)
+    # 使用K-means聚类找到主要颜色
+    kmeans = KMeans(n_clusters=1, n_init=10)
+    kmeans.fit(pixels)
     
-    # 畫出眼睛中心點
-    cv2.circle(img_copy, (eye_center_x, eye_center_y), 2, (255, 0, 0), -1)
-    
-    # 畫出瞳孔檢測區域
-    cv2.rectangle(img_copy, (x1, y1), (x2, y2), (0, 0, 255), 1)
-    
-    # 將圖片從RGB轉換為BGR以正確保存顏色
-    img_bgr = cv2.cvtColor(img_copy, cv2.COLOR_RGB2BGR)
-    
-    # 保存圖片
-    cv2.imwrite(save_path, img_bgr)
+    # 返回主要颜色
+    dominant_color = kmeans.cluster_centers_[0]
+    return np.uint8(dominant_color)
 
 def get_hair_color(img, face):
     # 計算頭髮區域（臉部上方）
     face_top = face.top()
     face_width = face.right() - face.left()
-    hair_height = face_width // 2  # 設定頭髮區域高度
+    hair_height = face_width // 2
     
     # 確保不超出圖片範圍
     hair_top = max(0, face_top - hair_height)
@@ -62,27 +45,16 @@ def get_hair_color(img, face):
     # 轉換到HSV色彩空間
     hsv_hair = cv2.cvtColor(hair_region, cv2.COLOR_RGB2HSV)
     
-    # 設定頭髮顏色範圍（較暗的顏色）
+    # 設定頭髮顏色範圍
     lower_hair = np.array([0, 0, 0])
-    upper_hair = np.array([180, 255, 100])  # 調整亮度範圍以捕捉頭髮顏色
+    upper_hair = np.array([180, 255, 100])
     
     # 創建遮罩
     mask = cv2.inRange(hsv_hair, lower_hair, upper_hair)
     
-    # 提取頭髮區域
-    hair = cv2.bitwise_and(hair_region, hair_region, mask=mask)
-    
-    # 移除黑色像素
-    valid_pixels = hair[np.sum(hair, axis=2) > 30]
-    
-    if len(valid_pixels) == 0:
-        return '#000000'
-    
-    # 找出最常見的顏色
-    unique_colors, counts = np.unique(valid_pixels, axis=0, return_counts=True)
-    most_common_color = unique_colors[np.argmax(counts)]
-    
-    return rgb_to_hex(most_common_color)
+    # 獲取主要顏色
+    dominant_color = get_dominant_color(hair_region, mask)
+    return rgb_to_hex(dominant_color)
 
 def visualize_facial_regions(img, face, landmarks, save_path='facial_regions.jpg'):
     # 複製原圖，避免修改原始圖片
@@ -164,27 +136,19 @@ def get_facial_colors(image_path):
 def get_skin_color(img, face):
     # 提取臉部區域
     face_region = img[face.top():face.bottom(), face.left():face.right()]
-
-    # 將圖像從 RGB 轉換為 HSV 色彩空間
+    
+    # 轉換到HSV色彩空間
     hsv_face = cv2.cvtColor(face_region, cv2.COLOR_RGB2HSV)
     
-    # 設定膚色範圍（此範圍適用於大多數膚色）
+    # 設定膚色範圍
     lower_skin = np.array([0, 20, 70])
     upper_skin = np.array([20, 255, 255])
-
+    
     # 創建遮罩
     mask = cv2.inRange(hsv_face, lower_skin, upper_skin)
     
-    # 提取膚色區域
-    skin = cv2.bitwise_and(face_region, face_region, mask=mask)
-    
-    # 使用 K-means 聚類來獲取膚色
-    pixels = skin.reshape(-1, 3)
-    kmeans = KMeans(n_clusters=3)
-    kmeans.fit(pixels)
-    
-    # 返回最主要的顏色（中心點）
-    dominant_color = kmeans.cluster_centers_[0]
+    # 獲取主要顏色
+    dominant_color = get_dominant_color(face_region, mask)
     return rgb_to_hex(dominant_color)
 
 def get_lip_color(img, landmarks):
@@ -204,30 +168,18 @@ def get_lip_color(img, landmarks):
     lip_region = img[max(0, y1-padding):min(img.shape[0], y2+padding), 
                     max(0, x1-padding):min(img.shape[1], x2+padding)]
     
-    # 將圖像轉換為HSV色彩空間
+    # 轉換到HSV色彩空間
     hsv_lip = cv2.cvtColor(lip_region, cv2.COLOR_RGB2HSV)
     
-    # 設定嘴唇顏色範圍（可以根據需要調整）
+    # 設定嘴唇顏色範圍
     lower_lip = np.array([0, 50, 50])
     upper_lip = np.array([10, 255, 255])
     
     # 創建遮罩
     mask = cv2.inRange(hsv_lip, lower_lip, upper_lip)
     
-    # 提取嘴唇區域
-    lip = cv2.bitwise_and(lip_region, lip_region, mask=mask)
-    
-    # 使用K-means聚類
-    pixels = lip.reshape(-1, 3)
-    pixels = pixels[pixels.sum(axis=1) > 0]  # 移除黑色像素
-    if len(pixels) == 0:
-        return '#000000'  # 如果沒有有效像素，返回黑色
-    
-    kmeans = KMeans(n_clusters=3)
-    kmeans.fit(pixels)
-    
-    # 返回最主要的顏色
-    dominant_color = kmeans.cluster_centers_[0]
+    # 獲取主要顏色
+    dominant_color = get_dominant_color(lip_region, mask)
     return rgb_to_hex(dominant_color)
 
 def rgb_to_hex(rgb):
